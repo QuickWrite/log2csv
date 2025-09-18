@@ -17,7 +17,7 @@ This is being done to enable as much configuration possibilities with this small
 - [ ] L2C Parser
   - [x] Key-Value pair system
   - [x] Comments
-  - [ ] Main RegEx
+  - [x] Main RegEx
   - [ ] Output Structure Settings
   - [ ] Advanced settings
     - [ ] Constraints

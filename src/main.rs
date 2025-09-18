@@ -1,12 +1,14 @@
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::ffi::OsString;
-
 use std::fs::File;
+
+use regex::Regex;
 
 #[derive(Debug)]
 struct L2C {
-    regex: String
+    regex: Regex,
+    order: Vec<String>
 }
 
 fn get_kv_pair(base: &str) -> Option<(&str, &str)> {
@@ -19,10 +21,19 @@ fn get_kv_pair(base: &str) -> Option<(&str, &str)> {
     None
 }
 
+fn get_list(value: &str) -> Vec<String> {
+    let mut result = Vec::new();
+
+    for v in value.split_whitespace() {
+        result.push(v.to_string());
+    }
+
+    result
+}
+
 fn l2c_parse(l2c_reader: BufReader<File>) -> L2C {
-    let mut l2c = L2C {
-        regex: String::new()
-    };
+    let mut regex: Option<Regex> = None; 
+    let mut order: Option<Vec<String>> = None;
 
     let lines = l2c_reader.lines();
 
@@ -40,7 +51,8 @@ fn l2c_parse(l2c_reader: BufReader<File>) -> L2C {
 
         if let Some((key, value)) = get_kv_pair(line) {
             match key.to_lowercase().as_str() {
-                "regex" => l2c.regex = value.to_string(),
+                "regex" => regex = Some(Regex::new(value).unwrap()), // TODO: Do not assume the regex works
+                "order" => order = Some(get_list(value)),
                 _ => {
                     panic!("The key {key} is currently not known!"); // TODO: Error!
                 }
@@ -50,7 +62,14 @@ fn l2c_parse(l2c_reader: BufReader<File>) -> L2C {
         }
     }
 
-    return l2c;
+    // TODO: Check if the values have been set
+    let regex = regex.unwrap();
+    let order = order.unwrap_or(Vec::new()); // TODO: Check if the values are correct
+
+    return L2C {
+        regex,
+        order,
+    };
 }
 
 pub fn main() {
