@@ -25,11 +25,11 @@ This is being done to enable as much configuration possibilities with this small
     - [ ] Counting
     - [ ] Grouping
 - [ ] Log Parser
-  - [ ] RegEx applier
+  - [x] RegEx applier
   - [ ] Mapping
   - [ ] Advanced Systems
-- [ ] File output
-  - [ ] CSV Exporter
+- [x] File output
+  - [x] CSV Exporter
 
 ## License
 This project is licensed under the [GNU GPL License](LICENSE).
