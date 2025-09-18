@@ -31,7 +31,7 @@ fn get_list(value: &str) -> Vec<String> {
     result
 }
 
-fn l2c_parse(l2c_reader: BufReader<File>) -> L2C {
+fn l2c_parse<R: BufRead>(l2c_reader: R) -> L2C {
     let mut regex: Option<Regex> = None; 
     let mut order: Option<Vec<String>> = None;
 
