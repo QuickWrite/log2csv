@@ -1,10 +1,7 @@
 use std::iter::{Peekable, Iterator};
 use std::str::Chars;
 
-///
-/// The tokenizer that is being used to parse this.
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum TokenType {
     Equals,
     NotEquals,
@@ -16,13 +13,15 @@ enum TokenType {
     And,
     Or,
     Xor,
-    Identifier,
     Dot,
     OpenParen,
     CloseParen,
     Number,
+    String,
+    Identifier,
 }
 
+#[derive(Debug)]
 struct Token<'a> {
     ttype: TokenType,
     sequence: &'a str,
@@ -83,7 +82,6 @@ impl<'a> Iterator for Lexer<'a> {
             '(' => Some(Token::from_char(self, TokenType::OpenParen, self.cursor)),
             ')' => Some(Token::from_char(self, TokenType::CloseParen, self.cursor)),
             '^' => Some(Token::from_char(self, TokenType::Xor, self.cursor)),
-            '.' => Some(Token::from_char(self, TokenType::Dot, self.cursor)),
 
             '<' => {
                 Some(if self.peek() == '=' {
@@ -115,35 +113,94 @@ impl<'a> Iterator for Lexer<'a> {
                 if self.next_char() == '&' {
                     Some(Token::from(self, TokenType::And, self.cursor - 1, self.cursor))
                 } else {
-                    None // TODO: Error state
+                    None // TODO: proper error handling
                 }
             },
             '|' => {
                 if self.next_char() == '|' {
                     Some(Token::from(self, TokenType::Or, self.cursor - 1, self.cursor))
                 } else {
-                    None // TODO: Error state
+                    None // TODO: proper error handling
                 }
             },
             '=' => {
                 if self.next_char() == '=' {
                     Some(Token::from(self, TokenType::Equals, self.cursor - 1, self.cursor))
                 } else {
-                    None
+                    None // TODO: proper error handling
                 }
+            },
+
+            '"' => {
+                let start = self.cursor; // points just after the opening quote
+
+                loop {
+                    let ch = self.next_char();
+                    match ch {
+                        '\\' => {
+                            let _escaped = self.next_char();
+                        }
+                        '"' => {
+                            break;
+                        }
+                        '\0' => {
+                            break; // TODO: Raise an error.
+                        }
+                        _ => {
+                            // ordinary character – continue scanning
+                        }
+                    }
+                }
+
+                Some(Token::from(self, TokenType::String, start + 1, self.cursor - 1))
             }
+
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let start = self.cursor - 1;
+
+                while {
+                    let nxt = self.peek();
+                    nxt.is_ascii_alphanumeric() || nxt == '_'
+                } {
+                    self.next_char();
+                }
+
+                Some(Token::from(self, TokenType::Identifier, start + 1, self.cursor))
+            },
+
+            c if c.is_ascii_digit() || (c == '.' && self.peek().is_ascii_digit()) => {
+                let start = self.cursor - 1;
+                let mut seen_dot = c == '.';
+
+                while {
+                    let nxt = self.peek();
+                    if nxt.is_ascii_digit() {
+                        true
+                    } else if nxt == '.' && !seen_dot {
+                        // First dot – part of a floating point literal.
+                        seen_dot = true;
+                        true
+                    } else {
+                        false
+                    }
+                } {
+                    self.next_char();
+                }
+
+                Some(Token::from(self, TokenType::Number, start + 1, self.cursor))
+            },
+
+            // The dot has to be checked after the number to allow numbers like `.025`.
+            '.' => Some(Token::from_char(self, TokenType::Dot, self.cursor)),
 
             '\0' => None,
 
-            character =>  {
-                _ = character; // TODO: Add identifier and Number
-
-                None
-            }
+            _ => None, // TODO: Currently nothing is done. Probably an error (and also consider whitespace).
         }
     }
 }
 
+/// Helper used in the tests / examples.
 pub fn parse_expression(input: &str) {
     let iterator = Lexer::new(input);
 
