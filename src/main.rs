@@ -69,6 +69,26 @@ fn l2c_parse<R: BufRead>(l2c_reader: R) -> L2C {
     };
 }
 
+fn write_string<W: Write>(writer: &mut W, capture: &str) {
+    writer.write(b"\"").unwrap(); // Starting "
+
+    for (i, s) in capture.split('"').enumerate() {
+        if i > 0 {
+            //    Based on the RFC 4180 specification
+            //
+            //    7.  If double-quotes are used to enclose fields, then a double-quote
+            //        appearing inside a field must be escaped by preceding it with
+            //        another double quote.  For example:
+            //
+            //        "aaa","b""bb","ccc"
+            writer.write(b"\"\"").unwrap();
+        }
+        writer.write(s.as_bytes()).unwrap();
+    }
+
+    writer.write(b"\"").unwrap(); // Ending "
+}
+
 fn log_execute<R: BufRead, W: Write>(input: R, writer: &mut W, l2c: &L2C, sep: String) {
     for (i, element) in l2c.order.iter().enumerate() {
         if i != 0 {
@@ -90,7 +110,14 @@ fn log_execute<R: BufRead, W: Write>(input: R, writer: &mut W, l2c: &L2C, sep: S
             if i != 0 {
                 writer.write(sep.as_bytes()).unwrap();
             }
-            writer.write(captures.name(&element).unwrap().as_str().as_bytes()).unwrap();
+
+            let capture = captures.name(&element).unwrap().as_str();
+
+            if !capture.contains(&sep) {
+                writer.write(capture.as_bytes()).unwrap();
+            } else {
+                write_string(writer, capture);
+            }
         }
 
         writer.write(b"\n").unwrap();
