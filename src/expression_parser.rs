@@ -40,6 +40,45 @@ impl<'a> Token<'a> {
     fn from_char(lexer: &Lexer<'a>, ttype: TokenType, pos: usize) -> Token<'a> {
         Token::from(lexer, ttype, pos, pos)
     }
+
+    fn as_str(&self) -> String {
+        match self.ttype {
+            TokenType::String => {
+                let inner = &self.sequence[1..self.sequence.len() - 1];
+                let mut out = String::with_capacity(inner.len());
+                let mut chars = inner.chars();
+                while let Some(ch) = chars.next() {
+                    if ch == '\\' {
+                        match chars.next() {
+                            Some('\"') => out.push('\"'),
+                            Some('\\') => out.push('\\'),
+
+                            Some(other) => {
+                                out.push('\\');
+                                out.push(other);
+                            }
+                            None => {
+                                out.push('\\');
+                            }
+                        }
+                    } else {
+                        out.push(ch);
+                    }
+                }
+                out
+            }
+            _ => self.sequence.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum LexError {
+    UnterminatedString { pos: usize },
+    UnexpectedChar { pos: usize, ch: char },
+    InvalidAnd,
+    InvalidOr,
+    InvalidEquals,
 }
 
 struct Lexer<'a> {
@@ -72,87 +111,105 @@ impl Lexer<'_> {
     fn peek(&mut self) -> char {
         *self.chars.peek().unwrap_or(&'\0')
     }
+
+    fn skip_whitespace(&mut self) {
+        while self.peek().is_ascii_whitespace() {
+            self.next_char();
+        }
+    }
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
+    type Item = Result<Token<'a>, LexError>;
 
-    fn next(&mut self) -> Option<Token<'a>> {
-        match self.next_char() {
-            '(' => Some(Token::from_char(self, TokenType::OpenParen, self.cursor)),
-            ')' => Some(Token::from_char(self, TokenType::CloseParen, self.cursor)),
-            '^' => Some(Token::from_char(self, TokenType::Xor, self.cursor)),
+    fn next(&mut self) -> Option<Self::Item> {
+        self.skip_whitespace(); // Ignore Whitespace
+
+        let first = self.next_char();
+        if first == '\0' {
+            return None;
+        }
+
+        // Helper that creates a token from the current cursor position.
+        let make_char = |lexer, tt| Token::from_char(lexer, tt, lexer.cursor);
+
+        let token = match first {
+            '(' => Ok(make_char(self, TokenType::OpenParen)),
+            ')' => Ok(make_char(self, TokenType::CloseParen)),
+            '^' => Ok(make_char(self, TokenType::Xor)),
+            '.' => Ok(make_char(self, TokenType::Dot)),
 
             '<' => {
-                Some(if self.peek() == '=' {
-                    self.next_char();
-                    Token::from(self, TokenType::LessThanEquals, self.cursor - 1, self.cursor)
+                if self.peek() == '=' {
+                    self.next_char(); // consume '='
+                    Ok(Token::from(self, TokenType::LessThanEquals, self.cursor - 1, self.cursor))
                 } else {
-                    Token::from_char(self, TokenType::LessThan, self.cursor)
-                })
-            },
+                    Ok(make_char(self, TokenType::LessThan))
+                }
+            }
+
             '>' => {
-                Some(if self.peek() == '=' {
+                if self.peek() == '=' {
                     self.next_char();
-                    Token::from(self, TokenType::GreaterThanEquals, self.cursor - 1, self.cursor)
+                    Ok(Token::from(self, TokenType::GreaterThanEquals, self.cursor - 1, self.cursor))
                 } else {
-                    Token::from_char(self, TokenType::GreaterThan, self.cursor)
-                })
-            },
+                    Ok(make_char(self, TokenType::GreaterThan))
+                }
+            }
 
             '!' => {
-                Some(if self.peek() == '=' {
+                if self.peek() == '=' {
                     self.next_char();
-                    Token::from(self, TokenType::NotEquals, self.cursor - 1, self.cursor)
+                    Ok(Token::from(self, TokenType::NotEquals, self.cursor - 1, self.cursor))
                 } else {
-                    Token::from_char(self, TokenType::Bang, self.cursor)
-                })
+                    Ok(make_char(self, TokenType::Bang))
+                }
             }
 
             '&' => {
                 if self.next_char() == '&' {
-                    Some(Token::from(self, TokenType::And, self.cursor - 1, self.cursor))
+                    Ok(Token::from(self, TokenType::And, self.cursor - 1, self.cursor))
                 } else {
-                    None // TODO: proper error handling
+                    Err(LexError::InvalidAnd)
                 }
-            },
+            }
+
             '|' => {
                 if self.next_char() == '|' {
-                    Some(Token::from(self, TokenType::Or, self.cursor - 1, self.cursor))
+                    Ok(Token::from(self, TokenType::Or, self.cursor - 1, self.cursor))
                 } else {
-                    None // TODO: proper error handling
+                    Err(LexError::InvalidOr)
                 }
-            },
+            }
+
             '=' => {
                 if self.next_char() == '=' {
-                    Some(Token::from(self, TokenType::Equals, self.cursor - 1, self.cursor))
+                    Ok(Token::from(self, TokenType::Equals, self.cursor - 1, self.cursor))
                 } else {
-                    None // TODO: proper error handling
+                    Err(LexError::InvalidEquals)
                 }
-            },
+            }
 
             '"' => {
-                let start = self.cursor; // points just after the opening quote
+                let start = self.cursor;
 
                 loop {
                     let ch = self.next_char();
                     match ch {
                         '\\' => {
-                            let _escaped = self.next_char();
+                            let _ = self.next_char();
                         }
                         '"' => {
                             break;
                         }
                         '\0' => {
-                            break; // TODO: Raise an error.
+                            return Some(Err(LexError::UnterminatedString { pos: start - 1 }));
                         }
-                        _ => {
-                            // ordinary character – continue scanning
-                        }
+                        _ => {}
                     }
                 }
 
-                Some(Token::from(self, TokenType::String, start + 1, self.cursor - 1))
+                Ok(Token::from(self, TokenType::String, start, self.cursor))
             }
 
             c if c.is_ascii_alphabetic() || c == '_' => {
@@ -165,8 +222,8 @@ impl<'a> Iterator for Lexer<'a> {
                     self.next_char();
                 }
 
-                Some(Token::from(self, TokenType::Identifier, start + 1, self.cursor))
-            },
+                Ok(Token::from(self, TokenType::Identifier, start + 1, self.cursor))
+            }
 
             c if c.is_ascii_digit() || (c == '.' && self.peek().is_ascii_digit()) => {
                 let start = self.cursor - 1;
@@ -187,24 +244,40 @@ impl<'a> Iterator for Lexer<'a> {
                     self.next_char();
                 }
 
-                Some(Token::from(self, TokenType::Number, start + 1, self.cursor))
-            },
+                Ok(Token::from(self, TokenType::Number, start + 1, self.cursor))
+            }
 
-            // The dot has to be checked after the number to allow numbers like `.025`.
-            '.' => Some(Token::from_char(self, TokenType::Dot, self.cursor)),
+            // -----------------------------------------------------------------
+            // Anything else is an error (including stray characters that are not
+            // whitespace – they have already been filtered out above).
+            // -----------------------------------------------------------------
+            other => Err(LexError::UnexpectedChar {
+                pos: self.cursor - 1,
+                ch: other,
+            }),
+        };
 
-            '\0' => None,
-
-            _ => None, // TODO: Currently nothing is done. Probably an error (and also consider whitespace).
-        }
+        Some(token)
     }
 }
 
-/// Helper used in the tests / examples.
+// Temporary implementation for debug purposes.
 pub fn parse_expression(input: &str) {
-    let iterator = Lexer::new(input);
-
-    for i in iterator {
-        print!("[{}] {:?} ({}), \n", i.pos, i.ttype, i.sequence);
+    let lexer = Lexer::new(input);
+    for result in lexer {
+        match result {
+            Ok(tok) => {
+                // For strings we show the *unescaped* value, for everything else the raw slice.
+                let display = match tok.ttype {
+                    TokenType::String => format!("\"{}\"", tok.as_str()),
+                    _ => tok.sequence.to_string(),
+                };
+                println!("[{}] {:?} ({})", tok.pos, tok.ttype, display);
+            }
+            Err(err) => {
+                eprintln!("Lexical error: {:?}", err);
+                break;
+            }
+        }
     }
 }
