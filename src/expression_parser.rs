@@ -1,4 +1,4 @@
-use std::iter::{Peekable, Iterator};
+use std::iter::{Iterator, Peekable};
 use std::str::Chars;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -9,7 +9,7 @@ enum TokenType {
     LessThanEquals,
     GreaterThan,
     GreaterThanEquals,
-    Bang,              // The `!` character
+    Bang, // The `!` character
     And,
     Or,
     Xor,
@@ -33,7 +33,7 @@ impl<'a> Token<'a> {
         Token {
             ttype,
             sequence: &lexer.expression[(from - 1)..to],
-            pos: from - 1
+            pos: from - 1,
         }
     }
 
@@ -84,7 +84,7 @@ enum LexError {
 struct Lexer<'a> {
     expression: &'a str,
     chars: Peekable<Chars<'a>>,
-    cursor: usize
+    cursor: usize,
 }
 
 impl Lexer<'_> {
@@ -142,7 +142,12 @@ impl<'a> Iterator for Lexer<'a> {
             '<' => {
                 if self.peek() == '=' {
                     self.next_char(); // consume '='
-                    Ok(Token::from(self, TokenType::LessThanEquals, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::LessThanEquals,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Ok(make_char(self, TokenType::LessThan))
                 }
@@ -151,7 +156,12 @@ impl<'a> Iterator for Lexer<'a> {
             '>' => {
                 if self.peek() == '=' {
                     self.next_char();
-                    Ok(Token::from(self, TokenType::GreaterThanEquals, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::GreaterThanEquals,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Ok(make_char(self, TokenType::GreaterThan))
                 }
@@ -160,7 +170,12 @@ impl<'a> Iterator for Lexer<'a> {
             '!' => {
                 if self.peek() == '=' {
                     self.next_char();
-                    Ok(Token::from(self, TokenType::NotEquals, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::NotEquals,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Ok(make_char(self, TokenType::Bang))
                 }
@@ -168,7 +183,12 @@ impl<'a> Iterator for Lexer<'a> {
 
             '&' => {
                 if self.next_char() == '&' {
-                    Ok(Token::from(self, TokenType::And, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::And,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Err(LexError::InvalidAnd)
                 }
@@ -176,7 +196,12 @@ impl<'a> Iterator for Lexer<'a> {
 
             '|' => {
                 if self.next_char() == '|' {
-                    Ok(Token::from(self, TokenType::Or, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::Or,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Err(LexError::InvalidOr)
                 }
@@ -184,7 +209,12 @@ impl<'a> Iterator for Lexer<'a> {
 
             '=' => {
                 if self.next_char() == '=' {
-                    Ok(Token::from(self, TokenType::Equals, self.cursor - 1, self.cursor))
+                    Ok(Token::from(
+                        self,
+                        TokenType::Equals,
+                        self.cursor - 1,
+                        self.cursor,
+                    ))
                 } else {
                     Err(LexError::InvalidEquals)
                 }
@@ -222,7 +252,12 @@ impl<'a> Iterator for Lexer<'a> {
                     self.next_char();
                 }
 
-                Ok(Token::from(self, TokenType::Identifier, start + 1, self.cursor))
+                Ok(Token::from(
+                    self,
+                    TokenType::Identifier,
+                    start + 1,
+                    self.cursor,
+                ))
             }
 
             c if c.is_ascii_digit() || (c == '.' && self.peek().is_ascii_digit()) => {
@@ -261,23 +296,278 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
-// Temporary implementation for debug purposes.
-pub fn parse_expression(input: &str) {
-    let lexer = Lexer::new(input);
-    for result in lexer {
-        match result {
-            Ok(tok) => {
-                // For strings we show the *unescaped* value, for everything else the raw slice.
-                let display = match tok.ttype {
-                    TokenType::String => format!("\"{}\"", tok.as_str()),
-                    _ => tok.sequence.to_string(),
-                };
-                println!("[{}] {:?} ({})", tok.pos, tok.ttype, display);
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    UnexpectedEof,
+    UnexpectedToken { pos: usize, token: String },
+    MismatchedParen { pos: usize },
+    InvalidNumber { pos: usize, text: String },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ConstraintOperator {
+    Equals {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    GreaterThan {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    GreaterEqualThan {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    LesserThan {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    LesserEqualThan {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    And {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    Or {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    Xor {
+        left: Box<ConstraintExpression>,
+        right: Box<ConstraintExpression>,
+    },
+    Not(Box<ConstraintExpression>),
+    MemberAccess {
+        object: Box<ConstraintExpression>,
+        field: String,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ConstraintExpression {
+    Variable(String),
+    StringLiteral(String),
+    IntegerLiteral(i64),
+    FloatLiteral(f64),
+    Operator(Box<ConstraintOperator>),
+}
+
+/// Returns a numeric precedence
+///
+/// larger = tighter binding.
+fn precedence(tt: &TokenType) -> Option<u8> {
+    match tt {
+        TokenType::Or => Some(1),
+        TokenType::And => Some(2),
+        TokenType::Xor => Some(3),
+        TokenType::Equals
+        | TokenType::NotEquals
+        | TokenType::LessThan
+        | TokenType::LessThanEquals
+        | TokenType::GreaterThan
+        | TokenType::GreaterThanEquals => Some(4),
+        _ => None,
+    }
+}
+
+pub fn parse_expression(input: &str) -> Result<ConstraintExpression, ParseError> {
+    let mut lexer = Lexer::new(input).peekable();
+    let expr = parse_expr(&mut lexer, 0)?;
+    // Ensure we consumed the whole input (except trailing whitespace)
+    match lexer.peek() {
+        Some(Ok(tok)) if tok.ttype == TokenType::CloseParen => {
+            Err(ParseError::MismatchedParen { pos: tok.pos })
+        }
+        Some(Ok(tok)) => Err(ParseError::UnexpectedToken {
+            pos: tok.pos,
+            token: tok.sequence.to_string(),
+        }),
+        Some(Err(_)) => Err(ParseError::UnexpectedToken {
+            pos: 0,
+            token: "lexical error".into(),
+        }),
+        None => Ok(expr),
+    }
+}
+
+fn parse_expr<'a>(
+    lexer: &mut Peekable<Lexer<'a>>,
+    min_prec: u8,
+) -> Result<ConstraintExpression, ParseError> {
+    let mut left = parse_primary(lexer)?;
+
+    loop {
+        let op_tok = match lexer.peek() {
+            Some(Ok(tok)) => tok,
+            Some(Err(_)) => {
+                return Err(ParseError::UnexpectedToken {
+                    pos: lexer.last().unwrap().unwrap().pos,
+                    token: "lexical error".into(),
+                });
             }
-            Err(err) => {
-                eprintln!("Lexical error: {:?}", err);
-                break;
+            None => break, // EOF
+        };
+
+        let op_prec = match precedence(&op_tok.ttype) {
+            Some(p) => p,
+            None => break, // not a binary operator
+        };
+
+        if op_prec < min_prec {
+            break;
+        }
+
+        let op = lexer.next().unwrap().unwrap();
+
+        let right = parse_expr(lexer, op_prec + 1)?;
+
+        left = ConstraintExpression::Operator(Box::new(match op.ttype {
+            TokenType::Equals => ConstraintOperator::Equals {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::NotEquals => ConstraintOperator::Equals {
+                left: Box::new(ConstraintExpression::Operator(Box::new(
+                    ConstraintOperator::Not(Box::new(ConstraintExpression::Operator(Box::new(
+                        ConstraintOperator::Equals {
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                    )))),
+                ))),
+                right: Box::new(ConstraintExpression::StringLiteral("".into())),
+            },
+            TokenType::LessThan => ConstraintOperator::LesserThan {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::LessThanEquals => ConstraintOperator::LesserEqualThan {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::GreaterThan => ConstraintOperator::GreaterThan {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::GreaterThanEquals => ConstraintOperator::GreaterEqualThan {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::And => ConstraintOperator::And {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::Or => ConstraintOperator::Or {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            TokenType::Xor => ConstraintOperator::Xor {
+                left: Box::new(left),
+                right: Box::new(right),
+            },
+            _ => unreachable!(),
+        }));
+    }
+
+    Ok(left)
+}
+
+/// Parse a primary expression: literals, identifiers, or a parenthesised sub‑expr.
+fn parse_primary<'a>(lexer: &mut Peekable<Lexer<'a>>) -> Result<ConstraintExpression, ParseError> {
+    let token_res = lexer
+        .next()
+        .ok_or(ParseError::UnexpectedEof)?
+        .map_err(|_| ParseError::UnexpectedToken {
+            pos: 0,
+            token: "lexical error".into(),
+        })?;
+
+    match token_res.ttype {
+        TokenType::Number => {
+            // Try integer first, then float.
+            if token_res.sequence.contains('.') {
+                token_res
+                    .sequence
+                    .parse::<f64>()
+                    .map(ConstraintExpression::FloatLiteral)
+                    .map_err(|_| ParseError::InvalidNumber {
+                        pos: token_res.pos,
+                        text: token_res.sequence.to_string(),
+                    })
+            } else {
+                token_res
+                    .sequence
+                    .parse::<i64>()
+                    .map(ConstraintExpression::IntegerLiteral)
+                    .map_err(|_| ParseError::InvalidNumber {
+                        pos: token_res.pos,
+                        text: token_res.sequence.to_string(),
+                    })
             }
         }
+
+        TokenType::String => Ok(ConstraintExpression::StringLiteral(token_res.as_str())),
+
+        TokenType::Identifier => parse_identifier_chain(lexer, token_res),
+
+        TokenType::OpenParen => {
+            let expr = parse_expr(lexer, 0)?;
+
+            // Matching ")"
+            match lexer.next() {
+                Some(Ok(tok)) if tok.ttype == TokenType::CloseParen => Ok(expr),
+                Some(Ok(tok)) => Err(ParseError::MismatchedParen { pos: tok.pos }),
+                Some(Err(_)) => Err(ParseError::UnexpectedToken {
+                    pos: token_res.pos,
+                    token: "lexical error".into(),
+                }),
+                None => Err(ParseError::UnexpectedEof),
+            }
+        }
+
+        other => Err(ParseError::UnexpectedToken {
+            pos: token_res.pos,
+            token: format!("{:?}", other),
+        }),
     }
+}
+
+fn parse_identifier_chain<'a>(
+    lexer: &mut Peekable<Lexer<'a>>,
+    first: Token<'a>,
+) -> Result<ConstraintExpression, ParseError> {
+    let mut expr = ConstraintExpression::Variable(first.sequence.to_string());
+
+    loop {
+        match lexer.peek() {
+            Some(Ok(tok)) if tok.ttype == TokenType::Dot => {
+                lexer.next();
+
+                let next_tok = lexer
+                    .next()
+                    .ok_or(ParseError::UnexpectedEof)?
+                    .map_err(|_| ParseError::UnexpectedToken {
+                        pos: 0,
+                        token: "lexical error".into(),
+                    })?;
+
+                if next_tok.ttype != TokenType::Identifier {
+                    return Err(ParseError::UnexpectedToken {
+                        pos: next_tok.pos,
+                        token: next_tok.sequence.to_string(),
+                    });
+                }
+
+                expr = ConstraintExpression::Operator(Box::new(ConstraintOperator::MemberAccess {
+                    object: Box::new(expr),
+                    field: next_tok.sequence.to_string(),
+                }));
+            }
+            _ => break, // no more dots
+        }
+    }
+
+    Ok(expr)
 }
