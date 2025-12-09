@@ -430,17 +430,12 @@ fn parse_expr<'a>(
                 left: Box::new(left),
                 right: Box::new(right),
             },
-            TokenType::NotEquals => ConstraintOperator::Equals {
-                left: Box::new(ConstraintExpression::Operator(Box::new(
-                    ConstraintOperator::Not(Box::new(ConstraintExpression::Operator(Box::new(
-                        ConstraintOperator::Equals {
+            TokenType::NotEquals => ConstraintOperator::Not(Box::new(
+                ConstraintExpression::Operator(Box::new(ConstraintOperator::Equals {
                             left: Box::new(left),
                             right: Box::new(right),
-                        },
-                    )))),
-                ))),
-                right: Box::new(ConstraintExpression::StringLiteral("".into())),
-            },
+                })),
+            )),
             TokenType::LessThan => ConstraintOperator::LesserThan {
                 left: Box::new(left),
                 right: Box::new(right),
