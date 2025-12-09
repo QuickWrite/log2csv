@@ -1,6 +1,8 @@
 use std::iter::{Iterator, Peekable};
 use std::str::Chars;
 
+use regex::Captures;
+
 #[derive(Debug, PartialEq, Eq)]
 enum TokenType {
     Equals,
@@ -570,4 +572,8 @@ fn parse_identifier_chain<'a>(
     }
 
     Ok(expr)
+}
+
+pub fn check_constraint(constraint: &ConstraintExpression, captures: &Captures<'_>) -> bool {
+    true // TODO: Add constraint parser
 }
