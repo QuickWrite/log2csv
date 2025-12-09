@@ -1,4 +1,5 @@
 # log2csv
+
 A simple log to CSV parsing system
 
 > [!IMPORTANT]
@@ -7,12 +8,14 @@ A simple log to CSV parsing system
 > And many things can and will change.
 
 ## Usage
+
 The program uses a `<name>.l2c` file to configure the way the log parser should work. <br />
 At each execution the `.l2c` file and the `<name>.log` file are provided and the resulting `output.csv` will be generated.
 
 This is being done to enable as much configuration possibilities with this small log parser.
 
 ## Project TODO:
+
 - [x] Command line interface
 - [ ] L2C Parser
   - [x] Key-Value pair system
@@ -20,7 +23,7 @@ This is being done to enable as much configuration possibilities with this small
   - [x] Main RegEx
   - [ ] Output Structure Settings
   - [ ] Advanced settings
-    - [ ] Constraints
+    - [x] Constraints
     - [ ] Sorting
     - [ ] Counting
     - [ ] Grouping
@@ -32,4 +35,5 @@ This is being done to enable as much configuration possibilities with this small
   - [x] CSV Exporter
 
 ## License
+
 This project is licensed under the [GNU GPL License](LICENSE).

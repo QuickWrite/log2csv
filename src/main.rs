@@ -5,9 +5,9 @@ use std::vec;
 
 use regex::Regex;
 
-use crate::expression_parser::{ConstraintExpression, check_constraint, parse_expression};
+use crate::expression::{ConstraintExpression, check_constraint, parse_expression};
 
-mod expression_parser;
+mod expression;
 
 #[derive(Debug)]
 struct L2C {
