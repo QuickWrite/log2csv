@@ -432,8 +432,8 @@ fn parse_expr<'a>(
             },
             TokenType::NotEquals => ConstraintOperator::Not(Box::new(
                 ConstraintExpression::Operator(Box::new(ConstraintOperator::Equals {
-                            left: Box::new(left),
-                            right: Box::new(right),
+                    left: Box::new(left),
+                    right: Box::new(right),
                 })),
             )),
             TokenType::LessThan => ConstraintOperator::LesserThan {
@@ -569,6 +569,200 @@ fn parse_identifier_chain<'a>(
     Ok(expr)
 }
 
+#[derive(Debug, Clone)]
+enum Value {
+    Str(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
+impl Value {
+    fn as_bool(&self) -> bool {
+        match self {
+            Value::Bool(b) => *b,
+            Value::Int(i) => *i != 0,
+            Value::Float(f) => *f != 0.0,
+            Value::Str(s) => !s.is_empty(),
+        }
+    }
+
+    fn as_f64_opt(&self) -> Option<f64> {
+        match self {
+            Value::Float(f) => Some(*f),
+            Value::Int(i) => Some(*i as f64),
+            Value::Str(s) => s.parse::<f64>().ok(),
+            Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        }
+    }
+
+    fn as_i64_opt(&self) -> Option<i64> {
+        match self {
+            Value::Int(i) => Some(*i),
+            Value::Float(f) => Some(*f as i64),
+            Value::Str(s) => s.parse::<i64>().ok(),
+            Value::Bool(b) => Some(if *b { 1 } else { 0 }),
+        }
+    }
+
+    fn as_string(&self) -> String {
+        match self {
+            Value::Str(s) => s.clone(),
+            Value::Int(i) => i.to_string(),
+            Value::Float(f) => {
+                // keep representation simple
+                f.to_string()
+            }
+            Value::Bool(b) => b.to_string(),
+        }
+    }
+}
+
+fn eval_expr(expr: &ConstraintExpression, captures: &Captures<'_>) -> Value {
+    match expr {
+        ConstraintExpression::Variable(name) => {
+            // look up capture by name; if none, empty string
+            let s = captures
+                .name(name.as_str())
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "".to_string());
+            Value::Str(s)
+        }
+
+        ConstraintExpression::StringLiteral(s) => Value::Str(s.clone()),
+        ConstraintExpression::IntegerLiteral(i) => Value::Int(*i),
+        ConstraintExpression::FloatLiteral(f) => Value::Float(*f),
+        ConstraintExpression::Operator(op_box) => {
+            match &**op_box {
+                ConstraintOperator::MemberAccess { object, field } => {
+                    let base = eval_expr(object, captures);
+
+                    match field.as_str() {
+                        "len" => Value::Int(base.as_string().chars().count() as i64),
+                        "int" => base
+                            .as_i64_opt()
+                            .map(Value::Int)
+                            .unwrap_or_else(|| Value::Int(0)),
+                        "float" => base
+                            .as_f64_opt()
+                            .map(Value::Float)
+                            .unwrap_or_else(|| Value::Float(0.0)),
+
+                        "text" => Value::Str(base.as_string()),
+                        _ => Value::Str("".to_string()),
+                    }
+                }
+                ConstraintOperator::Not(inner) => {
+                    let v = eval_expr(inner, captures);
+                    Value::Bool(!v.as_bool())
+                }
+                ConstraintOperator::Equals { left, right } => {
+                    let l = eval_expr(left, captures);
+                    let r = eval_expr(right, captures);
+
+                    if let (Some(ln), Some(rn)) = (l.as_f64_opt(), r.as_f64_opt()) {
+                        Value::Bool(ln == rn)
+                    } else {
+                        Value::Bool(l.as_string() == r.as_string())
+                    }
+                }
+                ConstraintOperator::And { left, right } => {
+                    let l = eval_expr(left, captures);
+
+                    if !l.as_bool() {
+                        // short circuit false
+                        Value::Bool(false)
+                    } else {
+                        let r = eval_expr(right, captures);
+                        Value::Bool(r.as_bool())
+                    }
+                }
+                ConstraintOperator::Or { left, right } => {
+                    let l = eval_expr(left, captures);
+
+                    if l.as_bool() {
+                        Value::Bool(true)
+                    } else {
+                        let r = eval_expr(right, captures);
+                        Value::Bool(r.as_bool())
+                    }
+                }
+                ConstraintOperator::Xor { left, right } => {
+                    let l = eval_expr(left, captures).as_bool();
+                    let r = eval_expr(right, captures).as_bool();
+
+                    Value::Bool(l ^ r)
+                }
+                ConstraintOperator::GreaterThan { left, right } => {
+                    let l = eval_expr(left, captures);
+                    let r = eval_expr(right, captures);
+
+                    // numeric preferred
+                    if let (Some(ln), Some(rn)) = (l.as_f64_opt(), r.as_f64_opt()) {
+                        Value::Bool(ln > rn)
+                    } else {
+                        Value::Bool(l.as_string() > r.as_string())
+                    }
+                }
+                ConstraintOperator::GreaterEqualThan { left, right } => {
+                    let l = eval_expr(left, captures);
+                    let r = eval_expr(right, captures);
+
+                    if let (Some(ln), Some(rn)) = (l.as_f64_opt(), r.as_f64_opt()) {
+                        Value::Bool(ln >= rn)
+                    } else {
+                        Value::Bool(l.as_string() >= r.as_string())
+                    }
+                }
+                ConstraintOperator::LesserThan { left, right } => {
+                    let l = eval_expr(left, captures);
+                    let r = eval_expr(right, captures);
+
+                    if let (Some(ln), Some(rn)) = (l.as_f64_opt(), r.as_f64_opt()) {
+                        Value::Bool(ln < rn)
+                    } else {
+                        Value::Bool(l.as_string() < r.as_string())
+                    }
+                }
+                ConstraintOperator::LesserEqualThan { left, right } => {
+                    let l = eval_expr(left, captures);
+                    let r = eval_expr(right, captures);
+
+                    if let (Some(ln), Some(rn)) = (l.as_f64_opt(), r.as_f64_opt()) {
+                        Value::Bool(ln <= rn)
+                    } else {
+                        Value::Bool(l.as_string() <= r.as_string())
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Checks the constraint (interprets the expression as boolean)
 pub fn check_constraint(constraint: &ConstraintExpression, captures: &Captures<'_>) -> bool {
-    true // TODO: Add constraint parser
+    let v = eval_expr(constraint, captures);
+    v.as_bool()
+}
+
+#[test]
+fn test_eval_basic() {
+    let re = regex::Regex::new(r"(?P<name>alice)(?P<age>\d+)").unwrap();
+    let caps = re.captures("alice42").unwrap();
+
+    // name == "alice"
+    let expr = parse_expression(r#"name == "alice""#).unwrap();
+    assert!(check_constraint(&expr, &caps));
+
+    // age > 40  (age is captured as string -> .int member)
+    let expr2 = parse_expression(r#"age.int > 40"#).unwrap();
+    assert!(check_constraint(&expr2, &caps));
+
+    // name.len == 5
+    let expr3 = parse_expression(r#"name.len == 5"#).unwrap();
+    assert!(check_constraint(&expr3, &caps));
+
+    // logical combine
+    let expr4 = parse_expression(r#"name == "alice" && age.int >= 42"#).unwrap();
+    assert!(check_constraint(&expr4, &caps));
 }
