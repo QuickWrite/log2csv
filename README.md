@@ -2,11 +2,6 @@
 
 A simple log to CSV parsing system
 
-> [!IMPORTANT]
-> This project is still in it's infancy. It currently does not work.
->
-> And many things can and will change.
-
 ## Usage
 
 The program uses a `<name>.l2c` file to configure the way the log parser should work. <br />
