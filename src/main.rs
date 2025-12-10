@@ -43,7 +43,7 @@ fn l2c_parse<R: BufRead>(l2c_reader: R) -> L2C {
 
     let lines = l2c_reader.lines();
 
-    for (i, line) in lines.map_while(Result::ok).enumerate() {
+    for (_, line) in lines.map_while(Result::ok).enumerate() {
         let line = line.trim_start();
         if line.starts_with('#') {
             // Skip comments
