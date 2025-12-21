@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 regex = "1.11.2"
 xflags = "0.3.2"
+codespan-reporting = "0.13.1"

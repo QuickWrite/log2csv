@@ -1,12 +1,18 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::vec;
+use std::process;
 
+use codespan_reporting::diagnostic::Diagnostic;
+use codespan_reporting::files::SimpleFiles;
+use codespan_reporting::term;
+use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use regex::Regex;
 
+use crate::error::{ErrorType, ParseError};
 use crate::expression::{ConstraintExpression, check_constraint, parse_expression};
 
+mod error;
 mod expression;
 
 #[derive(Debug)]
@@ -36,58 +42,133 @@ fn get_list(value: &str) -> Vec<String> {
     result
 }
 
-fn l2c_parse<R: BufRead>(l2c_reader: R) -> L2C {
-    let mut regex: Option<Regex> = None;
-    let mut order: Option<Vec<String>> = None;
-    let mut constraints: Vec<ConstraintExpression> = vec![];
+fn for_each_line<F>(source: &str, mut f: F)
+where
+    F: FnMut(&str, usize),
+{
+    let bytes = source.as_bytes();
+    let mut i = 0;
 
-    let lines = l2c_reader.lines();
+    while i < bytes.len() {
+        let line_start = i;
 
-    for (_, line) in lines.map_while(Result::ok).enumerate() {
-        let line = line.trim_start();
-        if line.starts_with('#') {
-            // Skip comments
-            continue;
+        // Scan until newline or EOF
+        while i < bytes.len() && bytes[i] != b'\n' && bytes[i] != b'\r' {
+            i += 1;
         }
 
-        if line.is_empty() {
-            // Skip blank lines
-            continue;
-        }
+        let line_end = i;
+        let line = &source[line_start..line_end];
 
-        if let Some((key, value)) = get_kv_pair(line) {
-            match key.to_lowercase().as_str() {
-                "regex" => regex = Some(Regex::new(value).unwrap()), // TODO: Do not assume the regex works
-                "order" => order = Some(get_list(value)),
-                "constraint" => {
-                    let constraint = parse_expression(value);
-                    if let Ok(constraint) = constraint {
-                        constraints.push(constraint);
-                    } else {
-                        panic!(
-                            "The constraint could not be parsed: {:?}",
-                            constraint.unwrap_err()
-                        ); // TODO: Error!
-                    }
+        f(line, line_start);
+
+        // Handle newline
+        if i < bytes.len() {
+            if bytes[i] == b'\r' {
+                i += 1;
+                if i < bytes.len() && bytes[i] == b'\n' {
+                    i += 1; // Windows CRLF
                 }
-                _ => {
-                    panic!("The key {key} is currently not known!"); // TODO: Error!
-                }
-            };
-        } else {
-            panic!("No key value pair found!"); // TODO: Error!
+            } else {
+                i += 1; // Unix LF
+            }
         }
     }
+}
 
-    // TODO: Check if the values have been set
-    let regex = regex.unwrap();
-    let order = order.unwrap_or(Vec::new()); // TODO: Check if the values are correct
+fn l2c_parse(source: &str, file_id: usize) -> Result<L2C, Vec<Diagnostic<usize>>> {
+    let mut regex: Option<Regex> = None;
+    let mut order: Option<Vec<String>> = None;
+    let mut constraints = Vec::new();
+    let mut diagnostics = Vec::new();
 
-    return L2C {
-        regex,
-        order,
+    for_each_line(source, |line, line_start| {
+        let original_line = line;
+
+        let trimmed_line = original_line.trim_start();
+        let trim_offset = original_line.len() - trimmed_line.len();
+
+        if trimmed_line.is_empty() || trimmed_line.starts_with('#') {
+            return;
+        }
+
+        if let Some((key, value)) = get_kv_pair(trimmed_line) {
+            match key.to_lowercase().as_str() {
+                "regex" => {
+                    if let Ok(r) = Regex::new(value) {
+                        regex = Some(r);
+                    } else {
+                        let start = line_start + trim_offset;
+                        let end = start + key.len();
+
+                        diagnostics.push(
+                            ParseError {
+                                file: file_id,
+                                span: start..end,
+                                error_type: ErrorType::InvalidSyntax,
+                            }
+                            .to_diagnostic(),
+                        );
+                    }
+                }
+
+                "order" => {
+                    order = Some(get_list(value));
+                }
+
+                "constraint" => match parse_expression(value) {
+                    Ok(expr) => constraints.push(expr),
+                    Err(_) => {
+                        let start = line_start + trim_offset;
+                        let end = start + key.len();
+
+                        diagnostics.push(
+                            ParseError {
+                                file: file_id,
+                                span: start..end,
+                                error_type: ErrorType::InvalidSyntax,
+                            }
+                            .to_diagnostic(),
+                        );
+                    }
+                },
+
+                _ => {
+                    let key_start_in_trimmed = trimmed_line.find(key).unwrap_or(0);
+                    let start = line_start + trim_offset + key_start_in_trimmed;
+                    let end = start + key.len();
+
+                    diagnostics.push(
+                        ParseError {
+                            file: file_id,
+                            span: start..end,
+                            error_type: ErrorType::UnknownKey,
+                        }
+                        .to_diagnostic(),
+                    );
+                }
+            }
+        } else {
+            diagnostics.push(
+                ParseError {
+                    file: file_id,
+                    span: line_start..(line_start + original_line.len()),
+                    error_type: ErrorType::InvalidSyntax,
+                }
+                .to_diagnostic(),
+            );
+        }
+    });
+
+    if !diagnostics.is_empty() {
+        return Err(diagnostics);
+    }
+
+    Ok(L2C {
+        regex: regex.unwrap(),
+        order: order.unwrap_or_default(),
         constraints,
-    };
+    })
 }
 
 fn write_string<W: Write>(writer: &mut W, capture: &str) {
@@ -173,13 +254,27 @@ pub fn main() {
         Err(err) => panic!("Could not open file: {}", err),
     };
 
-    let l2c = {
-        let l2c_file = match File::open(flags.l2c_path) {
-            Ok(file) => file,
-            Err(err) => panic!("Could not open file: {}", err),
-        };
+    let l2c_path = flags.l2c_path.as_path();
+    let l2c_file = match fs::read_to_string(l2c_path) {
+        Ok(file) => file,
+        Err(err) => panic!("Could not open file: {}", err),
+    };
 
-        l2c_parse(BufReader::new(l2c_file))
+    let mut files = SimpleFiles::new();
+    let file_id = files.add(l2c_path.file_name().unwrap().to_str().unwrap(), &l2c_file);
+
+    let l2c = match l2c_parse(&l2c_file, file_id) {
+        Ok(l2c) => l2c,
+        Err(diagnostics) => {
+            let writer = StandardStream::stderr(ColorChoice::Always);
+            let config = codespan_reporting::term::Config::default();
+
+            for diagnostic in diagnostics {
+                term::emit_to_io_write(&mut writer.lock(), &config, &files, &diagnostic).unwrap();
+            }
+
+            process::exit(1);
+        }
     };
 
     let output_path = flags
